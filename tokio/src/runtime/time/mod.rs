@@ -27,6 +27,7 @@ use crate::time::{Clock, Duration};
 use crate::util::WakeList;
 
 use crate::loom::sync::atomic::AtomicU64;
+use std::cell::Cell;
 use std::fmt;
 use std::{num::NonZeroU64, ptr::NonNull};
 
@@ -296,21 +297,26 @@ fn next_wake_time(expiration_time: Option<u64>) -> Option<NonZeroU64> {
 }
 
 impl Handle {
+    thread_local! {
+        // For fairness, randomly select one to start.
+        static CHECK_START: Cell<u32> = Cell::new(crate::runtime::context::thread_rng_n(u32::MAX));
+    }
+
     /// Runs timer related logic, and returns the next wakeup time
     pub(self) fn process(&self, clock: &Clock) {
         let now = self.time_source().now(clock);
-        // For fairness, randomly select one to start.
-        let shards = self.inner.get_shard_size();
-        let start = crate::runtime::context::thread_rng_n(shards);
+        let start = Self::CHECK_START.get();
         self.process_at_time(start, now);
     }
 
     pub(self) fn process_at_time(&self, start: u32, now: u64) {
         let shards = self.inner.get_shard_size();
 
-        let expiration_time = (start..shards + start)
+        let end = start + shards;
+        let expiration_time = (start..end)
             .filter_map(|i| self.process_at_sharded_time(i, now))
             .min();
+        Self::CHECK_START.set(end);
 
         self.inner.next_wake.store(next_wake_time(expiration_time));
     }
