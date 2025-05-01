@@ -310,9 +310,9 @@ impl Handle {
     }
 
     pub(self) fn process_at_time(&self, start: u32, now: u64) {
-        let shards = self.inner.get_shard_size() / 16;
+        let shards = self.inner.get_shard_size();
 
-        let end = start + shards;
+        let end = start + shards / 16;
         let expiration_time = (start..end)
             .filter_map(|i| self.process_at_sharded_time(i, now))
             .min();
